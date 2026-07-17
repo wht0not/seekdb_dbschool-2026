@@ -19,6 +19,7 @@
 
 #include "lib/allocator/ob_allocator.h"
 #include "lib/charset/ob_charset.h"
+#include "lib/charset/ob_ctype.h"
 #include "lib/utility/ob_macro_utils.h"
 #include "storage/fts/ik/ob_ik_char_util.h"
 #include "storage/fts/ik/ob_ik_token.h"
@@ -45,8 +46,9 @@ public:
 
   int compound(ObIKToken &result);
 
-  int current_char(const char *&ch, uint8_t &char_len);
-  int current_char_type(ObFTCharUtil::CharType &type);
+  int current_char_and_type(const char *&ch,
+                            uint8_t &char_len,
+                            ObFTCharUtil::CharType &type);
 
   int step_next();
 
@@ -74,9 +76,13 @@ public:
   int32_t handle_size() const { return handle_size_; }
 
 private:
+  using WellFormedLenFn = decltype(ObCharsetHandler::well_formed_len);
+
   int prepare_next_char();
 
   ObCollationType coll_type_;
+  const ObCharsetInfo *charset_info_;
+  WellFormedLenFn well_formed_len_;
   const char *fulltext_;
   int64_t fulltext_len_;
 
