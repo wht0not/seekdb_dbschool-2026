@@ -1,4 +1,4 @@
-﻿[target-default]
+[target-default]
 os=windows
 arch=x86_64
 repo=https://mirrors.oceanbase.com/oceanbase/development-kit/windows/11/x86_64

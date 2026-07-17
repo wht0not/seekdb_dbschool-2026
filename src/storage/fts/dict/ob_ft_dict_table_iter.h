@@ -44,6 +44,7 @@ private:
 
 private:
   bool is_inited_;
+  bool has_current_;
   ObISQLClient::ReadResult &res_;
 };
 

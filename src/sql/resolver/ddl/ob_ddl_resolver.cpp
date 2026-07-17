@@ -1996,6 +1996,25 @@ int ObDDLResolver::resolve_table_option(const ParseNode *option_node, const bool
         }
         break;
       }
+      case T_FULLTEXT_DICT: {
+        if (OB_ISNULL(option_node->children_[0])) {
+          ret = OB_ERR_UNEXPECTED;
+          SQL_RESV_LOG(WARN, "option_node child is null", K(option_node->children_[0]), K(ret));
+        } else {
+          ObString flag_str(static_cast<int32_t>(option_node->children_[0]->str_len_),
+                            (char *)(option_node->children_[0]->str_value_));
+          if (0 == flag_str.case_compare("Y") || 0 == flag_str.case_compare("y")) {
+            table_mode_.is_fulltext_dict_ = 1;
+          } else if (0 == flag_str.case_compare("N") || 0 == flag_str.case_compare("n")) {
+            table_mode_.is_fulltext_dict_ = 0;
+          } else {
+            ret = OB_ERR_PARSER_SYNTAX;
+            SQL_RESV_LOG(WARN, "FULLTEXT_DICT value must be 'Y' or 'N'", K(ret), K(flag_str));
+            LOG_USER_ERROR(OB_ERR_PARSER_SYNTAX);
+          }
+        }
+        break;
+      }
       case T_AUTO_INCREMENT_MODE: {
         if (OB_ISNULL(option_node->children_[0])) {
           ret = OB_ERR_UNEXPECTED;

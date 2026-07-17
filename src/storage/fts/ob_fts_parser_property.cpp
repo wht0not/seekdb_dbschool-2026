@@ -1148,6 +1148,28 @@ int ObFTParserJsonProps::show_parser_properties(const ObFTParserJsonProps &prope
 
 #undef __FT_PARSER_PROPERTY_SHOW_COMMA
 
+int ObFTParserProperty::set_table_name_(char *buf,
+                                        const int64_t buf_len,
+                                        common::ObString &dst,
+                                        const common::ObString &src)
+{
+  int ret = OB_SUCCESS;
+  if (OB_ISNULL(buf) || buf_len <= 0) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (src.empty()) {
+    buf[0] = '\0';
+    dst.reset();
+  } else if (src.length() >= buf_len) {
+    ret = OB_SIZE_OVERFLOW;
+    LOG_WARN("dict table name too long", K(ret), K(src), K(buf_len));
+  } else {
+    MEMCPY(buf, src.ptr(), src.length());
+    buf[src.length()] = '\0';
+    dst.assign_ptr(buf, src.length());
+  }
+  return ret;
+}
+
 int ObFTParserProperty::parse_for_parser_helper(const ObFTParser &parser, const ObString &json_str)
 {
   int ret = OB_SUCCESS;
@@ -1158,12 +1180,52 @@ int ObFTParserProperty::parse_for_parser_helper(const ObFTParser &parser, const 
     LOG_WARN("fail to parse from json str", K(ret), K(json_str));
   } else {
     if (parser.is_ik()) {
-      // set dict tables and copy dict name
-      dict_table_ = ObString(ObFTSLiteral::CONFIG_NAME_DICT_TABLE);
-      stopword_table_ = ObString(ObFTSLiteral::CONFIG_NAME_STOPWORD_TABLE);
-      quantifier_table_ = ObString(ObFTSLiteral::CONFIG_NAME_QUANTIFIER_TABLE);
+      ObString dict_table;
+      ObString stopword_table;
+      ObString quantifier_table;
+      if (OB_FAIL(props.config_get_dict_table(dict_table))) {
+        if (OB_SEARCH_NOT_FOUND == ret) {
+          dict_table = ObString(ObFTSLiteral::FT_DEFAULT_IK_DICT_UTF8_TABLE);
+          ret = OB_SUCCESS;
+        } else {
+          LOG_WARN("fail to get dict_table", K(ret));
+        }
+      }
+      if (OB_SUCC(ret)) {
+        if (OB_FAIL(props.config_get_stopword_table(stopword_table))) {
+          if (OB_SEARCH_NOT_FOUND == ret) {
+            stopword_table = ObString(ObFTSLiteral::FT_DEFAULT_IK_STOPWORD_UTF8_TABLE);
+            ret = OB_SUCCESS;
+          } else {
+            LOG_WARN("fail to get stopword_table", K(ret));
+          }
+        }
+      }
+      if (OB_SUCC(ret)) {
+        if (OB_FAIL(props.config_get_quantifier_table(quantifier_table))) {
+          if (OB_SEARCH_NOT_FOUND == ret) {
+            quantifier_table = ObString(ObFTSLiteral::FT_DEFAULT_IK_QUANTIFIER_UTF8_TABLE);
+            ret = OB_SUCCESS;
+          } else {
+            LOG_WARN("fail to get quantifier_table", K(ret));
+          }
+        }
+      }
+      if (FAILEDx(set_table_name_(dict_table_buf_, MAX_DICT_TABLE_NAME_LEN, dict_table_, dict_table))) {
+        LOG_WARN("fail to set dict_table", K(ret), K(dict_table));
+      } else if (OB_FAIL(set_table_name_(
+                     stopword_table_buf_, MAX_DICT_TABLE_NAME_LEN, stopword_table_, stopword_table))) {
+        LOG_WARN("fail to set stopword_table", K(ret), K(stopword_table));
+      } else if (OB_FAIL(set_table_name_(quantifier_table_buf_,
+                                         MAX_DICT_TABLE_NAME_LEN,
+                                         quantifier_table_,
+                                         quantifier_table))) {
+        LOG_WARN("fail to set quantifier_table", K(ret), K(quantifier_table));
+      }
+
       ObString ik_smart;
-      if (OB_FAIL(props.config_get_ik_mode(ik_smart))) {
+      if (OB_FAIL(ret)) {
+      } else if (OB_FAIL(props.config_get_ik_mode(ik_smart))) {
         if (OB_SEARCH_NOT_FOUND == ret) {
           // from old version, ik_mode is not set, so use default value
           ik_mode_smart_ = true;
@@ -1230,6 +1292,9 @@ ObFTParserProperty::ObFTParserProperty()
       min_ngram_token_size_(ObFTSLiteral::FT_DEFAULT_MIN_NGRAM_SIZE),
       max_ngram_token_size_(ObFTSLiteral::FT_DEFAULT_MAX_NGRAM_SIZE)
 {
+  MEMSET(stopword_table_buf_, 0, sizeof(stopword_table_buf_));
+  MEMSET(dict_table_buf_, 0, sizeof(dict_table_buf_));
+  MEMSET(quantifier_table_buf_, 0, sizeof(quantifier_table_buf_));
 }
 
 int ObFTParserJsonProps::tokenize_array_to_props_json(ObIAllocator &allocator,

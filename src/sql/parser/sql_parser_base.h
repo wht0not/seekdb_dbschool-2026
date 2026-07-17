@@ -64,7 +64,7 @@ do {                                                                            
   }                                                                                     \
 } while(0)
 
-extern void yyerror(void *yylloc, ParseResult *p, char *s,...);
+extern void yyerror(void *yylloc, ParseResult *p, const char *s,...);
 extern ParseNode *merge_tree(void *malloc_pool, int *fatal_error, ObItemType node_tag, ParseNode *source_tree);
 extern ParseNode *new_terminal_node(void *malloc_pool, ObItemType type);
 extern ParseNode *new_non_terminal_node(void *malloc_pool, ObItemType node_tag, int num, ...);
@@ -1046,7 +1046,7 @@ int STORE_PARAM_NODE_NEED_PARAMETERIZE(ParamList *param,
     }                                                                       \
   } while (0);
 
-// bugfix: 
+// bugfix:
 // convert '%' to '%%' for printf's format string.
 #define ESCAPE_PERCENT(result, src, dst)\
 do {\

@@ -343,7 +343,9 @@ private:
   static const int32_t TM_DDL_IGNORE_SYNC_CDC_BITS = 1;
   static const int32_t TM_TABLE_ORGANIZATION_MODE_OFFSET = 30;
   static const int32_t TM_TABLE_ORGANIZATION_MODE_BITS = 1;
-  static const int32_t TM_RESERVED = 1;
+  static const int32_t TM_FULLTEXT_DICT_OFFSET = 31;
+  static const int32_t TM_FULLTEXT_DICT_BITS = 1;
+  static const int32_t TM_RESERVED = 0;
 
   static const uint32_t MODE_FLAG_MASK = (1U << TM_MODE_FLAG_BITS) - 1;
   static const uint32_t PK_MODE_MASK = (1U << TM_PK_MODE_BITS) - 1;
@@ -360,6 +362,7 @@ private:
   static const uint32_t MV_ON_QUERY_COMPUTATION_MASK = (1U << TM_MV_ON_QUERY_COMPUTATION_BITS) - 1;
   static const uint32_t DDL_IGNORE_SYNC_CDC_MASK = (1U << TM_DDL_IGNORE_SYNC_CDC_BITS) - 1;
   static const uint32_t TABLE_ORGANIZATION_MODE_MASK = (1U << TM_TABLE_ORGANIZATION_MODE_BITS) - 1;
+  static const uint32_t FULLTEXT_DICT_MASK = (1U << TM_FULLTEXT_DICT_BITS) - 1;
 public:
   ObTableMode() { reset(); }
   virtual ~ObTableMode() { reset(); }
@@ -444,7 +447,8 @@ public:
                "mv_enable_query_rewrite_flag", mv_enable_query_rewrite_flag_,
                "mv_on_query_computation_flag", mv_on_query_computation_flag_,
                "ddl_table_ignore_sync_cdc_flag", ddl_table_ignore_sync_cdc_flag_,
-               "table_organization_mode", table_organization_mode_);
+               "table_organization_mode", table_organization_mode_,
+               "is_fulltext_dict", is_fulltext_dict_);
   union {
     int32_t mode_;
     struct {
@@ -465,7 +469,7 @@ public:
       uint32_t ddl_table_ignore_sync_cdc_flag_ : TM_DDL_IGNORE_SYNC_CDC_BITS;
       // heap_organization_mode_ will indicate whether the table is index organized(0) or heap organized(1)
       uint32_t table_organization_mode_: TM_TABLE_ORGANIZATION_MODE_BITS;
-      uint32_t reserved_ : TM_RESERVED;
+      uint32_t is_fulltext_dict_ : TM_FULLTEXT_DICT_BITS;
     };
   };
 };
@@ -846,6 +850,10 @@ public:
   { return (ObTablePrimaryKeyExistsMode)table_mode_.pk_exists_; }
   inline ObTableOrganizationMode get_table_organization_mode() const
   { return (ObTableOrganizationMode)table_mode_.table_organization_mode_; }
+  inline void set_is_fulltext_dict(const bool is_fulltext_dict)
+  { table_mode_.is_fulltext_dict_ = is_fulltext_dict ? 1 : 0; }
+  inline bool is_fulltext_dict() const
+  { return 0 != table_mode_.is_fulltext_dict_; }
   inline void set_view_created_method_flag(const ObViewCreatedMethodFlag view_created_method_flag)
     { table_mode_.view_created_method_flag_ =  view_created_method_flag; }
   inline ObViewCreatedMethodFlag get_view_created_method_flag() const

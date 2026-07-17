@@ -30,10 +30,12 @@ namespace storage
 {
 int ObFTDictHub::init()
 {
-  static constexpr int K_MAX_DICT_BUCKET = 128; // for now, only built-in dicts.
+  static constexpr int K_MAX_DICT_BUCKET = 128;
   int ret = OB_SUCCESS;
   if (OB_FAIL(dict_map_.create(K_MAX_DICT_BUCKET, "dict_map"))) {
     LOG_WARN("init dict map failed", K(ret));
+  } else if (OB_FAIL(version_map_.create(K_MAX_DICT_BUCKET, "dict_ver_map"))) {
+    LOG_WARN("init version map failed", K(ret));
   } else if (OB_FAIL(rw_dict_lock_.init(K_MAX_DICT_BUCKET))) {
     LOG_WARN("init dict lock failed", K(ret));
   } else {
@@ -48,10 +50,88 @@ int ObFTDictHub::destroy()
   is_inited_ = false;
   return ret;
 }
+
+uint64_t ObFTDictHub::calc_name_hash(const common::ObString &name)
+{
+  uint64_t hash_val = 0;
+  if (nullptr != name.ptr() && name.length() > 0) {
+    hash_val = common::murmurhash(name.ptr(), name.length(), hash_val);
+  }
+  return hash_val;
+}
+
+int ObFTDictHub::get_dict_version(const common::ObString &qualified_table_name, int64_t &version)
+{
+  int ret = OB_SUCCESS;
+  version = 0;
+  if (!is_inited_) {
+    ret = OB_NOT_INIT;
+    LOG_WARN("dict hub not init", K(ret));
+  } else {
+    const uint64_t name_hash = calc_name_hash(qualified_table_name);
+    ObBucketHashRLockGuard guard(rw_dict_lock_, name_hash);
+    if (OB_FAIL(version_map_.get_refactored(name_hash, version))) {
+      if (OB_HASH_NOT_EXIST == ret) {
+        version = 0;
+        ret = OB_SUCCESS;
+      } else {
+        LOG_WARN("get dict version failed", K(ret), K(qualified_table_name));
+      }
+    }
+  }
+  return ret;
+}
+
+int ObFTDictHub::invalidate_dict(const common::ObString &qualified_table_name)
+{
+  int ret = OB_SUCCESS;
+  if (!is_inited_) {
+    ret = OB_NOT_INIT;
+    LOG_WARN("dict hub not init", K(ret));
+  } else if (qualified_table_name.empty()) {
+    ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid qualified table name", K(ret));
+  } else {
+    const uint64_t name_hash = calc_name_hash(qualified_table_name);
+    ObBucketHashWLockGuard guard(rw_dict_lock_, name_hash);
+    int64_t version = 0;
+    if (OB_FAIL(version_map_.get_refactored(name_hash, version))) {
+      if (OB_HASH_NOT_EXIST == ret) {
+        version = 0;
+        ret = OB_SUCCESS;
+      } else {
+        LOG_WARN("get dict version failed", K(ret), K(qualified_table_name));
+      }
+    }
+    if (OB_SUCC(ret)) {
+      const int64_t new_version = version + 1;
+      const int cover_exist_flag = 1;
+      if (OB_FAIL(version_map_.set_refactored(name_hash, new_version, cover_exist_flag))) {
+        LOG_WARN("put dict version failed", K(ret), K(qualified_table_name), K(new_version));
+      } else {
+        // Drop stale dict_info for previous version so load_cache misses cleanly.
+        ObFTDictDesc stale_desc(qualified_table_name,
+                                ObFTDictType::DICT_IK_MAIN,
+                                CHARSET_UTF8MB4,
+                                CS_TYPE_UTF8MB4_BIN,
+                                true /*is_custom*/,
+                                version);
+        ObFTDictInfoKey key(static_cast<uint64_t>(stale_desc.type_), stale_desc.get_cache_name());
+        int tmp_ret = dict_map_.erase_refactored(key);
+        if (OB_SUCCESS != tmp_ret && OB_HASH_NOT_EXIST != tmp_ret) {
+          LOG_WARN("erase stale dict info failed", K(tmp_ret), K(qualified_table_name));
+        }
+        LOG_INFO("invalidate fulltext dict cache", K(qualified_table_name), K(new_version));
+      }
+    }
+  }
+  return ret;
+}
+
 int ObFTDictHub::build_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container)
 {
   int ret = OB_SUCCESS;
-  ObFTDictInfoKey key(static_cast<uint64_t>(desc.type_));
+  ObFTDictInfoKey key(static_cast<uint64_t>(desc.type_), desc.get_cache_name());
   ObFTDictInfo info;
   container.reset();
 
@@ -78,11 +158,19 @@ int ObFTDictHub::build_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &
 
     if (OB_FAIL(ret)) {
       if (OB_ENTRY_NOT_EXIST == ret) {
-        if (OB_FAIL(ObFTRangeDict::build_cache_from_ik_dict(desc, container))) {
+        if (desc.is_custom_) {
+          if (OB_FAIL(ObFTRangeDict::build_cache(desc, container))) {
+            LOG_WARN("Failed to build cache from table", K(ret), K(desc.name_));
+          }
+        } else if (OB_FAIL(ObFTRangeDict::build_cache_from_ik_dict(desc, container))) {
           LOG_WARN("Failed to build cache", K(ret));
-        } else if (FALSE_IT(info.range_count_ = container.get_handles().size())) {
-        } else if (OB_FAIL(put_dict_info(key, info))) {
-          LOG_WARN("Failed to put dict info", K(ret));
+        }
+        if (OB_SUCC(ret)) {
+          info.range_count_ = container.get_handles().size();
+          info.version_ = desc.version_;
+          if (OB_FAIL(put_dict_info(key, info))) {
+            LOG_WARN("Failed to put dict info", K(ret));
+          }
         }
       }
     }
@@ -95,7 +183,7 @@ int ObFTDictHub::load_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &c
   int ret = OB_SUCCESS;
   ObFTDictInfo info;
   container.reset();
-  ObFTDictInfoKey key(static_cast<uint64_t>(desc.type_));
+  ObFTDictInfoKey key(static_cast<uint64_t>(desc.type_), desc.get_cache_name());
   if (!is_inited_) {
     ret = OB_NOT_INIT;
     LOG_WARN("dict hub not init", K(ret));

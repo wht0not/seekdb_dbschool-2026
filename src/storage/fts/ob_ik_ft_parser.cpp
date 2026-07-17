@@ -23,6 +23,7 @@
 #include "lib/oblog/ob_log_module.h"
 #include "lib/utility/ob_macro_utils.h"
 #include "lib/utility/utility.h"
+#include "storage/fts/ob_fts_literal.h"
 #include "storage/fts/ob_fts_struct.h"
 #include "storage/fts/ob_fts_plugin_helper.h"
 #include "storage/fts/dict/ob_ft_dict.h"
@@ -277,32 +278,70 @@ int ObIKFTParser::init_dict(const plugin::ObFTParserParam &param)
     LOG_WARN("Dict hub is not inited", K(ret));
   }
 
+  const ObString default_main(ObFTSLiteral::FT_DEFAULT_IK_DICT_UTF8_TABLE);
+  const ObString default_quan(ObFTSLiteral::FT_DEFAULT_IK_QUANTIFIER_UTF8_TABLE);
+  const ObString default_stop(ObFTSLiteral::FT_DEFAULT_IK_STOPWORD_UTF8_TABLE);
+
+  ObString main_table = param.ik_param_.main_dict_;
+  ObString quan_table = param.ik_param_.quan_dict_;
+  ObString stop_table = param.ik_param_.stopword_dict_;
+  if (main_table.empty()) {
+    main_table = default_main;
+  }
+  if (quan_table.empty()) {
+    quan_table = default_quan;
+  }
+  if (stop_table.empty()) {
+    stop_table = default_stop;
+  }
+
+  const bool main_is_custom =
+      (0 != main_table.case_compare(default_main));
+  const bool quan_is_custom =
+      (0 != quan_table.case_compare(default_quan));
+  const bool stop_is_custom =
+      (0 != stop_table.case_compare(default_stop));
+
+  int64_t main_version = 0;
+  int64_t quan_version = 0;
+  int64_t stop_version = 0;
+  if (OB_SUCC(ret) && main_is_custom && OB_FAIL(hub_->get_dict_version(main_table, main_version))) {
+    LOG_WARN("Failed to get main dict version", K(ret), K(main_table));
+  } else if (quan_is_custom && OB_FAIL(hub_->get_dict_version(quan_table, quan_version))) {
+    LOG_WARN("Failed to get quantifier dict version", K(ret), K(quan_table));
+  } else if (stop_is_custom && OB_FAIL(hub_->get_dict_version(stop_table, stop_version))) {
+    LOG_WARN("Failed to get stopword dict version", K(ret), K(stop_table));
+  }
+
   ObFTRangeDict *dict = nullptr;
-  ObFTDictDesc main_dict_desc("main_dict",
+  ObFTDictDesc main_dict_desc(main_is_custom ? main_table : ObString("main_dict"),
                               ObFTDictType::DICT_IK_MAIN,
                               ObCharsetType::CHARSET_UTF8MB4,
-                              ObCollationType::CS_TYPE_UTF8MB4_BIN);
+                              ObCollationType::CS_TYPE_UTF8MB4_BIN,
+                              main_is_custom,
+                              main_version);
 
-  ObFTDictDesc quan_dict_desc("quan_dict",
+  ObFTDictDesc quan_dict_desc(quan_is_custom ? quan_table : ObString("quan_dict"),
                               ObFTDictType::DICT_IK_QUAN,
                               ObCharsetType::CHARSET_UTF8MB4,
-                              ObCollationType::CS_TYPE_UTF8MB4_BIN);
+                              ObCollationType::CS_TYPE_UTF8MB4_BIN,
+                              quan_is_custom,
+                              quan_version);
 
-  ObFTDictDesc stopword_dict_desc("stopword",
+  ObFTDictDesc stopword_dict_desc(stop_is_custom ? stop_table : ObString("stopword"),
                                   ObFTDictType::DICT_IK_STOP,
                                   ObCharsetType::CHARSET_UTF8MB4,
-                                  ObCollationType::CS_TYPE_UTF8MB4_BIN);
+                                  ObCollationType::CS_TYPE_UTF8MB4_BIN,
+                                  stop_is_custom,
+                                  stop_version);
 
-  if (should_read_newest_table()) {
-    // clear dict cache, always false now
-  } else {
-    if (OB_FAIL(init_single_dict(main_dict_desc, cache_main_))) {
-      LOG_WARN("Failed to init main dict", K(ret));
-    } else if (OB_FAIL(init_single_dict(quan_dict_desc, cache_quan_))) {
-      LOG_WARN("Failed to init quantifier dict", K(ret));
-    } else if (OB_FAIL(init_single_dict(stopword_dict_desc, cache_stop_))) {
-      LOG_WARN("Failed to init stopword dict", K(ret));
-    }
+  if (OB_FAIL(ret)) {
+  } else if (OB_FAIL(init_single_dict(main_dict_desc, cache_main_))) {
+    LOG_WARN("Failed to init main dict", K(ret), K(main_table), K(main_is_custom));
+  } else if (OB_FAIL(init_single_dict(quan_dict_desc, cache_quan_))) {
+    LOG_WARN("Failed to init quantifier dict", K(ret));
+  } else if (OB_FAIL(init_single_dict(stopword_dict_desc, cache_stop_))) {
+    LOG_WARN("Failed to init stopword dict", K(ret));
   }
 
   if (OB_FAIL(ret)) {

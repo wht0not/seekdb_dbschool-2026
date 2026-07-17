@@ -169,6 +169,37 @@ private:
   obcall::ObAdminRefreshMemStatArg rpc_arg_;
 };
 
+class ObRefreshFulltextDictStmt : public ObSystemCmdStmt
+{
+public:
+  static constexpr int64_t MAX_QUALIFIED_NAME_LEN = 512;
+  ObRefreshFulltextDictStmt()
+      : ObSystemCmdStmt(stmt::T_REFRESH_FULLTEXT_DICT),
+        database_name_(),
+        table_name_(),
+        qualified_name_()
+  {
+    MEMSET(database_name_buf_, 0, sizeof(database_name_buf_));
+    MEMSET(table_name_buf_, 0, sizeof(table_name_buf_));
+    MEMSET(qualified_name_buf_, 0, sizeof(qualified_name_buf_));
+  }
+  virtual ~ObRefreshFulltextDictStmt() {}
+
+  int set_names(const common::ObString &database_name, const common::ObString &table_name);
+  const common::ObString &get_database_name() const { return database_name_; }
+  const common::ObString &get_table_name() const { return table_name_; }
+  const common::ObString &get_qualified_name() const { return qualified_name_; }
+
+  TO_STRING_KV(N_STMT_TYPE, ((int)stmt_type_), K_(database_name), K_(table_name), K_(qualified_name));
+private:
+  common::ObString database_name_;
+  common::ObString table_name_;
+  common::ObString qualified_name_;
+  char database_name_buf_[common::OB_MAX_DATABASE_NAME_LENGTH + 1];
+  char table_name_buf_[common::OB_MAX_TABLE_NAME_LENGTH + 1];
+  char qualified_name_buf_[MAX_QUALIFIED_NAME_LEN];
+};
+
 class ObWashMemFragmentationStmt : public ObSystemCmdStmt
 {
 public:

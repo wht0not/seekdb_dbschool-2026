@@ -35,6 +35,8 @@
 #include "sql/engine/cmd/ob_timezone_importer.h"
 #include "sql/engine/cmd/ob_srs_importer.h"
 #include "share/ob_internal_table_change_notifier.h"
+#include "storage/fts/ob_fts_plugin_helper.h"
+#include "storage/fts/dict/ob_ft_dict_hub.h"
 
 namespace oceanbase
 {
@@ -471,6 +473,30 @@ int ObRefreshMemStatExecutor::execute(ObExecContext &ctx, ObRefreshMemStatStmt &
   } else if (OB_FAIL(GCTX.root_service_->admin_refresh_memory_stat(
                          stmt.get_rpc_arg()))) {
     LOG_WARN("refresh memory stat failed", K(ret), "rpc_arg", stmt.get_rpc_arg());
+  }
+  return ret;
+}
+
+int ObRefreshFulltextDictExecutor::execute(ObExecContext &ctx, ObRefreshFulltextDictStmt &stmt)
+{
+  int ret = OB_SUCCESS;
+  UNUSED(ctx);
+  storage::ObFTDictHub *hub = nullptr;
+  if (stmt.get_qualified_name().empty()) {
+    ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("qualified dict table name is empty", K(ret));
+  } else if (OB_FAIL(storage::ObFTParsePluginData::instance().get_dict_hub(hub))) {
+    LOG_WARN("fail to get dict hub", K(ret));
+  } else if (OB_ISNULL(hub)) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("dict hub is null", K(ret));
+  } else if (OB_FAIL(hub->invalidate_dict(stmt.get_qualified_name()))) {
+    LOG_WARN("fail to invalidate fulltext dict",
+             K(ret),
+             "qualified_name",
+             stmt.get_qualified_name());
+  } else {
+    LOG_INFO("refresh fulltext dict success", "qualified_name", stmt.get_qualified_name());
   }
   return ret;
 }
